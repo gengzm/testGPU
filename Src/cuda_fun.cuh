@@ -28,21 +28,19 @@ void MatriMul();
 
 extern "C" __host__ void Process(int Interpolation_Algorithm);
 
-
 extern "C" __global__ void InitImageData(char* image, int width, int height);
-
 
 extern "C" __global__ void Prefilter_1Dm(double *coefficient, int length, double *pole, double tolerance, double gamma);
 
 extern "C" __global__ void Prefilter_1D(double *coefficient, int length, double *pole, double tolerance, int nPoles);
 
-extern "C" __device__ double InitialCausalCoefficient(double *sample, int length, double pole, double tolerance);
+extern "C" __global__ void Prefilter_1D_step2(double *coefficient, int length, double *pole, double tolerance, int nPoles);
 
+extern "C" __device__ double InitialCausalCoefficient(double *sample, int length, double pole, double tolerance);
 
 extern "C" __device__ double InitialAnticausalCoefficient(double *CausalCoef, int length, double pole);
 
-
-extern "C" __global__ void GetParaFromImage(double * image_param, char *image, int width, int height);
+extern "C" __global__ void GetParaFromImage(double * image_param, unsigned char *image, int width, int height);
 
 extern "C" __global__ void GetRow(double * image_param, double * row, int width, int height, int rownum);
 
@@ -54,7 +52,7 @@ extern "C" __global__ void GetParamFromCol(double * image_param, double * col, i
 
 extern "C" __host__ void GenPoles(int &nPoles, double* pole, double & gamma, double & a, int Interpolation_Algorithm);
 
-extern "C" __host__ void GenerateParaSpline(char* image, double * image_param_out, int width, int height, int Interpolation_Algorithm, double * pole, double a, double gamma);
+extern "C" __host__ void GenerateParaSpline(unsigned char* image, double * image_param_out, int width, int height, int Interpolation_Algorithm, double * pole, int nPoles, double a, double gamma);
 
 extern "C" __device__ void GetValueSpline(double *Para, int width, int height, double X, double Y, double *S, int S_Flag, int Interpolation_Algorithm);
 

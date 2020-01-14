@@ -6,7 +6,7 @@ int main()
 {
 	std::cout << "Hello NVCC" << std::endl;
 	
-	Process(2);
+	Process(1);
 
 
 	return 0;

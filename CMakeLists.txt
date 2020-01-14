@@ -37,3 +37,8 @@ target_link_libraries(${PROJECT_NAME} PRIVATE ${OpenCV_LIBS} ${CUDA_LIBRARIES})
 cuda_add_executable(${PROJECT_NAME}_2 Src/cuda_main.cpp Src/cuda_fun.cuh Src/cuda_fun.cu)
 target_include_directories(${PROJECT_NAME}_2 PRIVATE ${OpenCV_INCLUDE_DIRS} ${CUDA_INCLUDE_DIRS})
 target_link_libraries(${PROJECT_NAME}_2 PRIVATE ${OpenCV_LIBS} ${CUDA_LIBRARIES})
+
+
+cuda_add_executable(${PROJECT_NAME}_cpu GPU/Test_Example.cpp)
+target_include_directories(${PROJECT_NAME}_cpu PRIVATE )
+target_link_libraries(${PROJECT_NAME}_cpu PRIVATE )

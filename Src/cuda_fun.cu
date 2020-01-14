@@ -3,11 +3,14 @@
 #include "device_launch_parameters.h"
 #include <stdio.h>
 #include <iostream>
+#include <fstream>
 #include <vector>
 #include <chrono>
 
 #define WIDTH 204
 #define HEIGHT 153
+#define CELL_W 16
+#define CELL_H 16
 
 /*******
 ********
@@ -52,15 +55,19 @@ extern "C" __global__ void InitImageData(char* image, int width, int height)
 	int row = blockIdx.y * blockDim.y + threadIdx.y;
 	int col = blockIdx.x * blockDim.x + threadIdx.x;
 
-	if (row < height && col < width) {
-		double x = (col - width >> 1) / (double)width;
-		double y = (row - height >> 1) / (double)height;
+
+	if ((row < height) && (col < width)) {
+		double x = (col - width /2 ) / (double)width;
+		double y = (row - height /2) / (double)height;
 		double x_2 = x * x;
 		double y_2 = y * y;
-		//double U = 3.0*(1 - x)*(1 - x)*exp(-x * x - (y + 1)*(y + 1)) - 10.0*(x / 5.0 - x * x*x - y * y*y*y*y)*exp(-x * x - y * y) - 1.0 / 3.0*exp(-(x + 1)*(x + 1) - y * y);
-		double U = 3.0*(1 - 2*x + x_2)*exp(- x_2 - (y_2 + 2*y + 1)) - 10.0*(x / 5.0 - x * x_2 - y * y_2 * y_2)*exp(-x_2 - y_2) - 1.0 / 3.0*exp(-(x_2 + 2*x + 1) - y_2);
+
+		//double U = 3.0*(1 - 2*x + x_2)*exp(- x_2 - (y_2 + 2*y + 1)) - 10.0*(x / 5.0 - x * x_2 - y * y_2 * y_2)*exp(-x_2 - y_2) - 1.0 / 3.0*exp(-(x_2 + 2*x + 1) - y_2);
+		double U = 3.0*(1 - x)*(1 - x)*exp(-x * x - (y + 1)*(y + 1)) - 10.0*(x / 5.0 - x * x*x - y * y*y*y*y)*exp(-x * x - y * y) - 1.0 / 3.0*exp(-(x + 1)*(x + 1) - y * y);
+
 		double t = 127.5*(1.0 + cos(200 * U));
 
+		
 		image[col + row * width] = (char)(int)(t + 0.5);
 	}
 
@@ -69,7 +76,7 @@ extern "C" __global__ void InitImageData(char* image, int width, int height)
 
 extern "C" __global__ void Prefilter_1Dm(double *coefficient, int length, double *pole, double tolerance, double gamma)
 {
-	int i, n, k;
+	//int i, n, k;
 	double Lambda;
 	Lambda = 6.0 / (6.0 * gamma + 1.0);
 
@@ -78,24 +85,70 @@ extern "C" __global__ void Prefilter_1Dm(double *coefficient, int length, double
 	// Applying the gain to original image
 	
 	coefficient[col] *= Lambda;
+
+	for (int k = 0; k < 1; k++)	// Testing
+	{
+		// Compute the first causal coefficient
+		*(coefficient) = InitialCausalCoefficient(coefficient, length, pole[k], tolerance);
+
+		// Causal prefilter
+		for (int n = 1; n < length; n++)
+			coefficient[n] += pole[k] * coefficient[n - 1];
+
+		//Compute the first anticausal coefficient
+		*(coefficient + length - 1) = InitialAnticausalCoefficient(coefficient, length, pole[k]);
+
+		//Anticausal prefilter
+		for (int n = length - 2; n >= 0; n--)
+			coefficient[n] = pole[k] * (coefficient[n + 1] - coefficient[n]);
+	}
 	
 }
 
+// filter one row by one row
 extern "C" __global__ void Prefilter_1D(double *coefficient, int length, double *pole, double tolerance, int nPoles)
 {
-
-	int i, n, k;
 	double Lambda;
 	Lambda = 1;
 	if (length == 1)
 		return;
-	/* compute the overall gain */
-	for (k = 0; k < nPoles; k++)
-		Lambda = Lambda * (1.0 - pole[k]) * (1.0 - 1.0 / pole[k]);
 
+	/* compute the overall gain */
+	for (int k = 0; k < nPoles; k++) {
+		Lambda = Lambda * (1.0 - pole[k]) * (1.0 - 1.0 / pole[k]);
+	}
+	
 	// Applying the gain to original image
 	int col = blockIdx.x * blockDim.x + threadIdx.x;
-	coefficient[col] *= Lambda;
+	if (col < length) {
+		coefficient[col] *= Lambda;
+	}
+	
+	
+	
+//  顺序执行性很强的语句如何处理？？？？？？？？？？？？？？？？？
+	//for (k = 0; k < nPoles; k++)
+	//{
+	//	// Compute the first causal coefficient
+	//	coefficient[0] = InitialCausalCoefficient(coefficient, length, pole[k], tolerance);
+
+	//	// Causal prefilter
+	//	for (n = 1; n < length; n++)
+	//		coefficient[n] += pole[k] * coefficient[n - 1];
+
+	//	//Compute the first anticausal coefficient
+	//	coefficient[ length - 1] = InitialAnticausalCoefficient(coefficient, length, pole[k]);
+
+	//	//Anticausal prefilter
+	//	for (n = length - 2; n >= 0; n--)
+	//		coefficient[n] = pole[k] * (coefficient[n + 1] - coefficient[n]);
+	//}
+}
+
+extern "C" __global__ void Prefilter_1D_step2(double *coefficient, int length, double *pole, double tolerance, int nPoles)
+{
+	int k = 0;
+	int n = 0;
 
 	for (k = 0; k < nPoles; k++)
 	{
@@ -107,13 +160,14 @@ extern "C" __global__ void Prefilter_1D(double *coefficient, int length, double 
 			coefficient[n] += pole[k] * coefficient[n - 1];
 
 		//Compute the first anticausal coefficient
-		coefficient[ length - 1] = InitialAnticausalCoefficient(coefficient, length, pole[k]);
+		coefficient[length - 1] = InitialAnticausalCoefficient(coefficient, length, pole[k]);
 
 		//Anticausal prefilter
 		for (n = length - 2; n >= 0; n--)
 			coefficient[n] = pole[k] * (coefficient[n + 1] - coefficient[n]);
 	}
 }
+
 
 extern "C" __device__ double InitialCausalCoefficient(double *sample, int length, double pole, double tolerance)
 {
@@ -155,7 +209,7 @@ extern "C" __device__ double InitialAnticausalCoefficient(double *CausalCoef, in
 }
 
 
-extern "C" __global__ void GetParaFromImage(double * image_param, char *image, int width, int height)
+extern "C" __global__ void GetParaFromImage(double * image_param, unsigned char *image, int width, int height)
 {
 
 	// 这个应该放在核函数外面生成
@@ -178,7 +232,8 @@ extern "C" __global__ void GetRow(double * image_param, double * row, int width,
 }
 
 extern "C" __global__ void GetCol(double * image_param, double * col, int width, int height, int colnum) {
-	int y = blockIdx.y * blockDim.y + threadIdx.y;
+	int y = blockIdx.x * blockDim.x + threadIdx.x;
+
 	if (y < height) {
 		col[y] = image_param[colnum + y * width];
 	}
@@ -193,7 +248,8 @@ extern "C" __global__ void GetParamFromRow(double * image_param, double * row, i
 
 
 extern "C" __global__ void GetParamFromCol(double * image_param, double * col, int width, int height, int colnum) {
-	int y = blockIdx.y * blockDim.y + threadIdx.y;
+	int y = blockIdx.x * blockDim.x + threadIdx.x;
+
 	if (y < height) {
 		image_param[colnum + y * width] = col[y];
 	}
@@ -240,54 +296,118 @@ extern "C" __host__ void GenPoles(int &nPoles, double* pole,double & gamma, doub
 	}
 }
 
-extern "C" __host__ void GenerateParaSpline( char* image, double * image_param_out,int width, int height, int Interpolation_Algorithm, double * pole, double a, double gamma) {
-	int i, j, nPoles, length = width * height;
+extern "C" __host__ void GenerateParaSpline(unsigned char* image, double * image_param_out,int width, int height, int Interpolation_Algorithm, double * pole, int nPoles, double a, double gamma) {
+
 	double/* pole[2], a, gamma, */ tolerance = 1e-4;
 
-	
 	double *image_row/*[HEIGHT]*/;
 	double *image_col/*[WIDTH]*/;
 	double *image_param/*[WIDTH* HEIGHT]*/;
+	double *poles;
 	cudaMalloc(&image_row, sizeof(double)*WIDTH);
 	cudaMalloc(&image_col, sizeof(double)*HEIGHT);
 	cudaMalloc(&image_param, sizeof(double)*WIDTH* HEIGHT);
+	cudaMalloc(&poles, sizeof(double)*nPoles);
+	cudaMemcpy(poles, pole, sizeof(double)*nPoles, cudaMemcpyHostToDevice);
 
-	dim3 Grid(ceil(width / 16), ceil(height / 16));
-	dim3 Block(16, 16);
+	dim3 Grid(ceil(width / (float)CELL_W), ceil(height / (float)CELL_H));
+	dim3 Block(CELL_W, CELL_H);
+	// char to double
 	GetParaFromImage<<<Grid, Block>>>(image_param, image, width, height);
+
 	for (int y = 0; y < height; y++) {
-		dim3 Grid(ceil(width / 16));
-		dim3 Block(16);
+		dim3 Grid(ceil(width / (float)CELL_W));
+		dim3 Block(CELL_W);
 		GetRow <<<Grid, Block >> > (image_param, image_row, width, height, y);
+		// function GetRow works
+
 		if (Interpolation_Algorithm == 3) {
 			
-			Prefilter_1Dm<<<Grid, Block>>>(image_row, width, pole, tolerance, gamma);
+			Prefilter_1Dm<<<Grid, Block>>>(image_row, width, poles, tolerance, gamma);
 		}
 		else {
-			Prefilter_1D <<<Grid, Block >>> (image_row, width, pole, tolerance, gamma);
+			/*if (y == 0) {
+				double * temp = (double*)malloc(sizeof(double)*width);
+				cudaMemcpy(temp, image_row, sizeof(double)*width, cudaMemcpyDeviceToHost);
+				std::ofstream of;
+				of.open("D:/Temp/GPU_Prefilter_1D_before.txt");
+					for (int j = 0; j < width; j++)
+					{
+						of << (double)(*(temp + j)) << " ";
+					}
+				of.close();
+				free(temp);
+			}*/
+			Prefilter_1D <<<Grid, Block >>> (image_row, width, poles, tolerance, nPoles); 
+			
+			/*if (y == 0) {
+				double * temp = (double*)malloc(sizeof(double)*width);
+				cudaMemcpy(temp, image_row, sizeof(double)*width, cudaMemcpyDeviceToHost);
+				std::ofstream of;
+				of.open("D:/Temp/GPU_Prefilter_1D_0.txt");
+					for (int j = 0; j < width; j++)
+					{
+						of << (double)(*(temp + j)) << " ";
+					}
+				of.close();
+				free(temp);
+			}*/
+			Prefilter_1D_step2 <<<1, 1 >>> (image_row, width, poles, tolerance, nPoles);
 		}
+        /*if (y == 0) {
+			double * temp = (double*)malloc(sizeof(double)*width);
+			cudaMemcpy(temp, image_row, sizeof(double)*width, cudaMemcpyDeviceToHost);
+			std::ofstream of;
+			of.open("D:/Temp/GPU_Prefilter_1D_step2_after_first_cal.txt");
+				for (int j = 0; j < width; j++)
+				{
+					of << (double)(*(temp + j)) << " ";
+				}
+			of.close();
+			free(temp);
+		}*/
+
 
 		GetParamFromRow <<<Grid, Block >>>(image_param_out, image_row, width, height, y);
+
+		/*if (y == 0) {
+			double * temp = (double*)malloc(sizeof(double)*width);
+			cudaMemcpy(temp, image_row, sizeof(double)*width, cudaMemcpyDeviceToHost);
+			std::ofstream of;
+			of.open("D:/Temp/GPU_Prefileter.txt");
+				for (int j = 0; j < width; j++)
+				{
+					of << (double)(*(temp + j)) << " ";
+				}
+			of.close();
+			free(temp);
+		}*/
 	}
+
 	for (int x = 0; x < width; x++) {
-		dim3 Grid(ceil(height / 16));
-		dim3 Block(16);
-		GetCol <<<Grid, Block >>> (image_param, image_col, width, height, x);
+		dim3 Grid(ceil(height / (float)CELL_W));
+		dim3 Block(CELL_W);
+		GetCol <<<Grid, Block >>> (image_param_out, image_col, width, height, x);
+
 		if (Interpolation_Algorithm == 3) {
-			Prefilter_1Dm <<<Grid, Block >>> (image_col, height, pole, tolerance, gamma);
+			Prefilter_1Dm <<<Grid, Block >>> (image_col, height, poles, tolerance, gamma);
 		}
 		else {
-			Prefilter_1D <<<Grid, Block >>> (image_col, height, pole, tolerance, gamma);
+			Prefilter_1D <<<Grid, Block >>> (image_col, height, poles, tolerance, nPoles);
+			Prefilter_1D_step2<<<1,1>>> (image_col, height, poles, tolerance, nPoles);
 		}
 
 		GetParamFromCol <<<Grid, Block >>> (image_param_out, image_col, width, height, x);
 	}
 
+	cudaFree(image_row);
+	cudaFree(image_col);
+	cudaFree(image_param);
+
 }
 
 extern "C" __device__ void GetValueSpline(double *Para, int width, int height, double X, double Y, double *S, int S_Flag, int Interpolation_Algorithm)
 {
-
 	int i, j, width2, height2, xIndex[6], yIndex[6];
 	double Para_Value, xWeight[6], yWeight[6], xWeightGradient[6], yWeightGradient[6], w, w2, w4, t, t0, t1, gamma;
 
@@ -626,9 +746,6 @@ extern "C" __device__ void GetValueSpline(double *Para, int width, int height, d
 		}
 	}
 
-	printf("This is TEST. S[0,1,2] = %f %f %f\n", S[0], S[1], S[2]);
-
-
 	return;
 }
 
@@ -661,16 +778,36 @@ extern "C" __host__ void Process(int Interpolation_Algorithm)
 	int size = sizeof(char)*width*height;
 
 	imagedata_ = (char*)malloc(size);
-	imageparam_ = (double*)malloc(size);
+	imageparam_ = (double*)malloc(sizeof(double)*width*height);
+	memset(imagedata_, 0, size);
+	memset(imageparam_, 0, sizeof(double)*width*height);
+
 	char *imagedata;
 	double *imageparam;
 	cudaMalloc(&imagedata, size);
-	cudaMalloc(&imageparam, size);
+	cudaMalloc(&imageparam, sizeof(double)*width*height);
+	cudaMemset(imagedata, 0, size);
+	cudaMemset(imageparam, 0, sizeof(double)*width*height);
 
-	dim3 Grid(ceil(width / 16), ceil(height / 16));
-	dim3 Block(16, 16);
+	dim3 Grid(ceil(width / (float)CELL_W), ceil(height / (float)CELL_H));
+	dim3 Block(CELL_W, CELL_H);
 	InitImageData <<<Grid, Block >>> (imagedata, width, height);
 
+	cudaMemcpy(imagedata_, imagedata, size, cudaMemcpyDeviceToHost);
+
+	std::ofstream of;
+	/*of.open("D:/Temp/GPU_initim.txt");
+	if (of.is_open()) {
+		for (int jj = 0; jj < height; jj++)
+		{
+			for (int ii = 0; ii < width; ii++)
+			{
+				of << (int)*(imagedata_ + jj * width + ii) << " ";
+			}
+			of << std::endl;
+		}
+		of.close();
+	}*/
 
 	int nPoles{0};
 	double pole[2];
@@ -678,25 +815,48 @@ extern "C" __host__ void Process(int Interpolation_Algorithm)
 	double a{0};
 
 	GenPoles(nPoles, pole, gamma, a, Interpolation_Algorithm);
-	GenerateParaSpline(imagedata, imageparam, width, height, Interpolation_Algorithm, pole, a, gamma);
+
+	GenerateParaSpline((unsigned char*)imagedata, imageparam, width, height, Interpolation_Algorithm, pole, nPoles, a, gamma);
+
+	cudaMemcpy(imageparam_, imageparam, size, cudaMemcpyDeviceToHost);
+
+	//of.open("D:/Temp/GPU_Para.txt");
+	//if (of.is_open()) {
+	//	for (int jj = 0; jj < height; jj++)
+	//	{
+	//		for (int ii = 0; ii < width; ii++)
+	//		{
+	//			of << (double)*(imageparam_ + jj * width + ii) << " ";
+	//		}
+	//		of << std::endl;
+	//	}
+	//	of.close();
+	//}
+
 
 	char *image_data_N;
 	int width_N = WIDTH * 255 / 100.0f;
 	int height_N = HEIGHT * 255 / 100.0f;
 	cudaMalloc(&image_data_N, sizeof(char)*width_N*height_N);
-	dim3 Grid_N(ceil(width_N / 16), ceil(height_N / 16));
-	dim3 Block_N(16, 16);
+	dim3 Grid_N(ceil(width_N / (float)CELL_W), ceil(height_N / (float)CELL_H));
+	dim3 Block_N(CELL_W, CELL_H);
 	GetSplineData<<<Grid_N, Block_N>>>(image_data_N, width_N, height_N, imageparam, width, height, Interpolation_Algorithm);
 	
 	char *image_data_N_c = (char*)malloc(sizeof(char)*width_N*height_N);
 
 	cudaMemcpy(image_data_N_c, image_data_N,sizeof(char)*width_N*height_N, cudaMemcpyDeviceToHost);
 
-	for (int y = 0; y < height_N; y++) {
-		for (int x = 0; x < width_N; x++) {
-		//	printf("%d ", image_data_N_c[x + y * width_N]);
+	of.open("D:/Temp/testGPU.txt");
+	if (of.is_open()) {
+		for (int y = 0; y < height_N; y++) {
+			for (int x = 0; x < width_N; x++) {
+				//	printf("%d ", image_data_N_c[x + y * width_N]);
+				of << (int)image_data_N_c[x + y * width_N] << " ";
+			}
+			of << std::endl;
+			//printf("\n");
 		}
-		//printf("\n");
+		of.close();
 	}
 	// 释放空间
 

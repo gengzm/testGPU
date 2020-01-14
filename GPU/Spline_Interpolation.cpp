@@ -1,5 +1,9 @@
 //// Spline interpolation functions
 
+#include <stdio.h>
+#include <iostream>
+#include <fstream>
+
 //// To generate interpolation parametersm, use: 
 // template <class m_Type> void Generate_Para_Spline(m_Type *Image, double *Para, int width, int height, int Interpolation_Algorithm);
 
@@ -9,7 +13,7 @@
 
 extern "C" __declspec(dllexport) double InitialCausalCoefficient(double *sample, int length, double pole, double tolerance)
 {
-	AFX_MANAGE_STATE(AfxGetStaticModuleState());
+	//AFX_MANAGE_STATE(AfxGetStaticModuleState());
 
 	double zn, iz, z2n;
 	double FirstCausalCoef;
@@ -43,7 +47,7 @@ extern "C" __declspec(dllexport) double InitialCausalCoefficient(double *sample,
 
 extern "C" __declspec(dllexport) double InitialAnticausalCoefficient(double *CausalCoef, int length, double pole)
 {
-	AFX_MANAGE_STATE(AfxGetStaticModuleState());
+	//AFX_MANAGE_STATE(AfxGetStaticModuleState());
 
 	return((pole / (pole * pole - 1.0)) * (pole * CausalCoef[length - 2] + CausalCoef[length - 1]));
 }
@@ -51,7 +55,7 @@ extern "C" __declspec(dllexport) double InitialAnticausalCoefficient(double *Cau
 // prefilter for 4-tap, 6-tap, 8-tap, optimized 4-tap, and optimized 6-tap
 extern "C" __declspec(dllexport) void Prefilter_1D(double *coefficient, int length, double *pole, double tolerance, int nPoles)
 {
-	AFX_MANAGE_STATE(AfxGetStaticModuleState());
+	//AFX_MANAGE_STATE(AfxGetStaticModuleState());
 
 	int i, n, k;
 	double Lambda;
@@ -62,9 +66,12 @@ extern "C" __declspec(dllexport) void Prefilter_1D(double *coefficient, int leng
 	for (k = 0; k < nPoles; k++)
 		Lambda = Lambda * (1.0 - pole[k]) * (1.0 - 1.0 / pole[k]);
 
+	
 	// Applying the gain to original image
-	for (i = 0; i < length; i++)
+	for (i = 0; i < length; i++) {
 		*(coefficient + i) = (*(coefficient + i)) * Lambda;
+	}
+
 
 	for (k = 0; k < nPoles; k++)
 	{
@@ -82,12 +89,26 @@ extern "C" __declspec(dllexport) void Prefilter_1D(double *coefficient, int leng
 		for (n = length - 2; n >= 0; n--)
 			coefficient[n] = pole[k] * (coefficient[n + 1] - coefficient[n]);
 	}
+
+
+	static int si = 0;
+	if (si == 0) {
+		std::ofstream of;
+		of.open("D:/Temp/CPU_Prefilter_1D_after_first_cal.txt");
+		for (int j = 0; j < length; j++)
+		{
+			of << (double)(*(coefficient + j)) << " ";
+		}
+		of.close();
+
+	}
+	si++;
 }
 
 // Prefilter for modified 4-tap
 extern "C" __declspec(dllexport) void Prefilter_1Dm(double *coefficient, int length, double *pole, double tolerance, double gamma)
 {
-	AFX_MANAGE_STATE(AfxGetStaticModuleState());
+	//AFX_MANAGE_STATE(AfxGetStaticModuleState());
 
 	int i, n, k;
 	double Lambda;
@@ -119,7 +140,7 @@ extern "C" __declspec(dllexport) void Prefilter_1Dm(double *coefficient, int len
 
 template <class m_Type> void Generate_Para_Spline(m_Type *Image, double *Para, int width, int height, int Interpolation_Algorithm)
 {
-	AFX_MANAGE_STATE(AfxGetStaticModuleState());
+	//AFX_MANAGE_STATE(AfxGetStaticModuleState());
 
 	int i, j, nPoles, length = width * height;
 	double pole[2], a, gamma, tolerance = 1e-4;
@@ -168,15 +189,53 @@ template <class m_Type> void Generate_Para_Spline(m_Type *Image, double *Para, i
 		{
 			*(LineWidth + j) = (double)(*(Image + i * width + j));
 		}
+
+		{
+			if (i == 0) {
+				std::ofstream of;
+				of.open("D:/Temp/CPU_Prefilter_1D_before_and_out_image.txt");
+				//for (int y = 0; y < HEIGHT; y++)
+				{
+					for (int x = 0; x < width; x++) {
+						of << (double)Image[x] << " ";
+					}
+					of << std::endl;
+				}
+				of.close();
+
+				of.open("D:/Temp/CPU_Prefilter_1D_before_and_out.txt");
+				//for (int y = 0; y < HEIGHT; y++)
+				{
+					for (int x = 0; x < width; x++) {
+						of << LineWidth[ x] << " ";
+					}
+					of << std::endl;
+				}
+
+				of.close();
+			}
+		}
 		if (Interpolation_Algorithm == 3)
 			Prefilter_1Dm(LineWidth, width, pole, tolerance, gamma);
 		else
 			Prefilter_1D(LineWidth, width, pole, tolerance, nPoles);
 
+
+		
 		// Put the prefiltered coeffiecients into Para array
 		for (j = 0; j < width; j++)
 		{
 			*(Para + i * width + j) = (*(LineWidth + j));
+		}
+		
+		if (i == 0) {
+			std::ofstream of;
+			of.open("D:/Temp/CPU_Prefileter.txt");
+				for (j = 0; j < width; j++)
+				{
+					of << (*(LineWidth + j)) << " ";
+				}
+				of.close();
 		}
 	}
 	delete[]LineWidth;
@@ -211,8 +270,8 @@ template __declspec(dllexport) void Generate_Para_Spline(double *Image, double *
 
 template <class m_Type> void Generate_Para_Spline_Parallel(m_Type *Image, double *Para, int width, int height, int Interpolation_Algorithm)
 {
-	AFX_MANAGE_STATE(AfxGetStaticModuleState());
-
+	//AFX_MANAGE_STATE(AfxGetStaticModuleState());
+#if 0
 	int nPoles, length = width * height;
 	double pole[2], a, gamma, tolerance = 1e-4;
 
@@ -297,7 +356,7 @@ template <class m_Type> void Generate_Para_Spline_Parallel(m_Type *Image, double
 		}
 		delete[]LineHeight;
 	});
-
+#endif
 	return;
 }
 
@@ -307,7 +366,7 @@ template __declspec(dllexport) void Generate_Para_Spline_Parallel(double *Image,
 
 extern "C" __declspec(dllexport) void Get_Value_Spline(double *Para, int width, int height, double X, double Y, double *S, int S_Flag, int Interpolation_Algorithm)
 {
-	AFX_MANAGE_STATE(AfxGetStaticModuleState());
+	//AFX_MANAGE_STATE(AfxGetStaticModuleState());
 
 	int i, j, width2, height2, xIndex[6], yIndex[6];
 	double Para_Value, xWeight[6], yWeight[6], xWeightGradient[6], yWeightGradient[6], w, w2, w4, t, t0, t1, gamma;
